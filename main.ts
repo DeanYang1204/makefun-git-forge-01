@@ -1,3 +1,8 @@
+// This file MUST stay at the repository root. The grader mounts the submitted repository
+// read-only at /bot and runs `node /bot/main.ts`, so the repository root IS /bot at grading:
+// a main.ts under any subdirectory would land at /bot/<dir>/main.ts and never run. Keep every
+// source file beside it at the root for the same reason; all imports here are relative.
+//
 // The entry <-> env lifecycle, as env/src/wire.ts settles it: bind an ephemeral port, tell the env the
 // port it bound, then poll until the env says the trial is over and exit 0. Keep this file as it is:
 // the suite scores the server app.ts builds, and the lifecycle is the harness's, not the contest's.
@@ -79,6 +84,18 @@ async function waitForDone(): Promise<void> {
 /** Bound the port, register it, then wait for the env: the whole life of the process. */
 async function main(): Promise<void> {
   const server = createApp();
+  // If the harness stops the process (wall budget), shut the server down instead of dying
+  // mid-request: close the listener and leave with 0 so no half-served request is left behind.
+  let shuttingDown = false;
+  const shutdown = (): void => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    server.close(() => process.exit(0));
+    // The close callback never fires while a request is in flight; do not hang on it.
+    setTimeout(() => process.exit(0), 1_000).unref();
+  };
+  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', shutdown);
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(0, () => resolve());
